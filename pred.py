@@ -1,11 +1,8 @@
-import sys
-import csv
-import random
 import numpy as np
 import pandas as pd
 
 
-# Saved constants computed from the training set only (see csc311_predictor_fixed.ipynb, cells for cleaning + split)
+# These values came from the training set, computed in the cleaning notebook
 Q6_WORDS = ['Skyscrapers', 'Sport', 'Art and Music', 'Carnival', 'Cuisine', 'Economic']
 Q6_COLS = ['Q6_' + w.replace(' ', '_') for w in Q6_WORDS]
 Q6_MEDIANS = {
@@ -46,12 +43,6 @@ def prepare_features(filename):
     transform it into a numeric feature matrix, using the exact same
     steps as the cleaning notebook, with all thresholds/medians fixed
     to values learned from the training set only.
- 
-    Parameters:
-        `filename` - path to a raw CSV file
- 
-    Returns: a pandas DataFrame with columns FEATURE_COLS, one row
-             per input row (in the same order as the input file).
     """
     df = pd.read_csv(filename)
  
@@ -106,37 +97,51 @@ def prepare_features(filename):
     return features
 
 
-def predict(x):
-    """
-    Helper function to make prediction for a given input x.
-    This code is here for demonstration purposes only.
-    """
-    # randomly choose between the four choices: 'Dubai', 'Rio de Janeiro', 'New York City' and 'Paris'.
-    # NOTE: make sure to be *very* careful of the spelling/capitalization of the cities!!
-    y = random.choice(['Dubai', 'Rio de Janeiro', 'New York City' ,'Paris'])
+# Load the trained weights and standardization values, saved by train.py
+_params = np.load('model_params.npz', allow_pickle=True)
+W = _params['W']
+MEAN = _params['mean']
+STD = _params['std']
+CLASSES = [str(c) for c in _params['classes']]
 
-    # return the prediction
-    return y
+
+def softmax(z):
+    """
+    Turn a matrix of raw scores z (shape N x K) into probabilities that add up to 1 across each row.
+    """
+    z = z - np.max(z, axis=1, keepdims=True)
+    exp_z = np.exp(z)
+    return exp_z / np.sum(exp_z, axis=1, keepdims=True)
+
 
 def predict_all(filename):
     """
     Make predictions for the data in filename
     """
-    # read the file containing the test data
-    # you do not need to use the "csv" package like we are using
-    # (e.g. you may use numpy, pandas, etc)
-    data = csv.DictReader(open(filename))
+    features = prepare_features(filename)
 
-    predictions = []
-    for test_example in data:
-        # obtain a prediction for this test example
-        pred = predict(test_example)
-        predictions.append(pred)
+    # standardize using the mean/std from the training set
+    X = ((features.to_numpy() - MEAN) / STD)
+
+    # add a column of 1s for the bias/intercept
+    X = np.hstack([np.ones((len(X), 1)), X])
+
+    # predict probabilities for each city, then pick most likely one
+    Y = softmax(np.dot(X, W))
+    predicted_city_indices = np.argmax(Y, axis=1)
+
+    predictions = [CLASSES[i] for i in predicted_city_indices]
 
     return predictions
 
-
+# TODO REMOVE THIS TESTING CODE BEFORE SUBMISSION
 if __name__ == '__main__':
-    feats = prepare_features('cleaned_dataset.csv')
-    print(feats.shape)
-    print(feats.head())
+    predictions = predict_all('test_raw.csv')  # 223 rows that were in test_features.csv but in original form in cleaned_dataset.csv
+    print('First 10 predictions:', predictions[:10])
+    print('Total predictions made:', len(predictions))
+
+    # accuracy check, only works if the file has a Label column
+    true_labels = pd.read_csv('test_raw.csv')['Label'].tolist()
+    correct = sum(p == t for p, t in zip(predictions, true_labels))
+    print(f'Accuracy: {correct}/{len(true_labels)} = {correct / len(true_labels):.4f}')
+

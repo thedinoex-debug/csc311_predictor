@@ -2,7 +2,7 @@
 Trains the softmax regression model from scratch and saves the learned parameters to a file that pred.py can load.
 
 Should be used just once to produce model_params.npz. 
-Same idea as lab04, just extended from binary (sigmoid) to multi-class (softmax).
+Based on lab 4, extended to multiple classes.
 """
 
 import numpy as np
@@ -50,7 +50,7 @@ def accuracy(W, X, T):
 def grad(W, X, T):
     """
     Gradient of the cross-entropy loss with respect to W.
-    Same formula as lab04's binary case, just using the full Y-T matrix instead of a single y-t column.
+    Vectorized version of the binary gradient.
     """
     Y = pred(W, X)
     return np.dot(X.T, (Y - T)) / len(T)
@@ -58,7 +58,7 @@ def grad(W, X, T):
 
 def train(X_train, T_train, X_val, T_val, alpha=0.5, n_iters=2000):
     """
-    Gradient descent, same loop as lab04's solve_via_gradient_descent. 
+    Gradient descent.
     Prints progress and plots the training curve at the end.
     """
     num_features = X_train.shape[1]
