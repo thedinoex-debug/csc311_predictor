@@ -27,14 +27,17 @@ def pred(W, X):
     return softmax(z)
 
 
-def loss(W, X, T):
+def loss(W, X, T, reg_lambda=0.0):
     """
-    Average cross-entropy loss across all examples.
+    Average cross-entropy loss across all examples, plus an L2 penalty on
+    the weights (not the bias row) to discourage overfitting.
     T is the one-hot target matrix (shape N x K).
     """
     Y = pred(W, X)
     # small number added so it never takes log(0)
-    return np.mean(-np.sum(T * np.log(Y + 1e-12), axis=1))
+    cross_entropy = np.mean(-np.sum(T * np.log(Y + 1e-12), axis=1))
+    l2_penalty = (reg_lambda / 2) * np.sum(W[1:] ** 2)
+    return cross_entropy + l2_penalty
 
 
 def accuracy(W, X, T):
@@ -47,44 +50,55 @@ def accuracy(W, X, T):
     return np.mean(predicted_class == true_class)
 
 
-def grad(W, X, T):
+def grad(W, X, T, reg_lambda=0.0):
     """
-    Gradient of the cross-entropy loss with respect to W.
+    Gradient of the cross-entropy loss with respect to W, plus the
+    derivative of the L2 penalty (not applied to the bias row).
     Vectorized version of the binary gradient.
     """
     Y = pred(W, X)
-    return np.dot(X.T, (Y - T)) / len(T)
+    data_grad = np.dot(X.T, (Y - T)) / len(T)
+    reg_grad = reg_lambda * W
+    reg_grad[0] = 0  # never penalize the bias row
+    return data_grad + reg_grad
 
 
-def train(X_train, T_train, X_val, T_val, alpha=0.5, n_iters=2000):
+def train(X_train, T_train, X_val=None, T_val=None, alpha=0.5, n_iters=2000, reg_lambda=0.0, plot=True):
     """
     Gradient descent.
-    Prints progress and plots the training curve at the end.
+    Prints progress and (if plot=True) plots the training curve at the end.
+    X_val/T_val are optional -- pass them to also track validation loss/accuracy.
     """
     num_features = X_train.shape[1]
     num_classes = T_train.shape[1]
     W = np.zeros((num_features, num_classes))
 
     train_losses = []
-    val_losses = []
+    val_losses = [] if X_val is not None else None
 
     for i in range(n_iters):
-        W = W - alpha * grad(W, X_train, T_train)
+        W = W - alpha * grad(W, X_train, T_train, reg_lambda)
 
-        train_losses.append(loss(W, X_train, T_train))
-        val_losses.append(loss(W, X_val, T_val))
+        train_losses.append(loss(W, X_train, T_train, reg_lambda))
+        if val_losses is not None:
+            val_losses.append(loss(W, X_val, T_val, reg_lambda))
 
-    plt.plot(train_losses, label='train loss')
-    plt.plot(val_losses, label='val loss')
-    plt.xlabel('iteration')
-    plt.ylabel('loss')
-    plt.legend()
-    plt.title('Training curve')
-    plt.savefig('training_curve.png')
-    print('Saved training_curve.png')
+    if plot:
+        plt.figure()
+        plt.plot(train_losses, label='train loss')
+        if val_losses is not None:
+            plt.plot(val_losses, label='val loss')
+        plt.xlabel('iteration')
+        plt.ylabel('loss')
+        plt.legend()
+        plt.title(f'Training curve (reg_lambda={reg_lambda})')
+        plt.savefig('training_curve.png')
+        print('Saved training_curve.png')
 
-    print('Final train accuracy:', accuracy(W, X_train, T_train))
-    print('Final val accuracy:  ', accuracy(W, X_val, T_val))
+    msg = f'reg_lambda={reg_lambda}: train accuracy={accuracy(W, X_train, T_train):.4f}'
+    if X_val is not None:
+        msg += f', val accuracy={accuracy(W, X_val, T_val):.4f}'
+    print(msg)
 
     return W
 
@@ -105,24 +119,45 @@ if __name__ == '__main__':
     train_df = pd.read_csv('train_features.csv')
     val_df = pd.read_csv('val_features.csv')
 
-    feature_cols = [c for c in train_df.columns if c != 'Label']
+    # 'id' is only for grouping respondents during train/val/test splitting
+    # and cross-validation elsewhere -- not a real feature. Raw Q7/Q8/Q9 are
+    # only here so we can recompute capping bounds below; the model uses the
+    # *_capped versions, not these raw columns.
+    feature_cols = [c for c in train_df.columns if c not in ('Label', 'id', 'Q7', 'Q8', 'Q9')]
     classes = sorted(train_df['Label'].unique())
 
-    # standardize using train mean/std only
-    mean = train_df[feature_cols].mean()
-    std = train_df[feature_cols].std()
+    # reg_lambda was already picked using val (see git history / notebook),
+    # so there's no more reason to hold val out of the final fit -- fold it
+    # into the training set for ~21% more data. test_raw.csv is still a
+    # fully independent set never touched here.
+    full_train_df = pd.concat([train_df, val_df], ignore_index=True)
 
-    X_train = ((train_df[feature_cols] - mean) / std).to_numpy()
-    X_val = ((val_df[feature_cols] - mean) / std).to_numpy()
+    # Recompute Q7-9 capping bounds from train+val combined, since that's
+    # now the population the final model is actually fit on -- the bounds
+    # baked into the CSVs by the cleaning notebook were train-only, computed
+    # before val was folded back in here.
+    q7_lo, q7_hi = -20, 45  # fixed by choice, not data-derived
+    q8_hi = full_train_df['Q8'].quantile(0.99)
+    q9_hi = full_train_df['Q9'].quantile(0.99)
+    full_train_df['Q7_capped'] = full_train_df['Q7'].clip(q7_lo, q7_hi)
+    full_train_df['Q8_capped'] = full_train_df['Q8'].clip(upper=q8_hi)
+    full_train_df['Q9_capped'] = full_train_df['Q9'].clip(upper=q9_hi)
+    print(f'Recomputed capping bounds (train+val, n={len(full_train_df)}): '
+          f'q7=[{q7_lo}, {q7_hi}], q8_hi={q8_hi!r}, q9_hi={q9_hi!r}')
+
+    # standardize using the full (train+val) mean/std only
+    mean = full_train_df[feature_cols].mean()
+    std = full_train_df[feature_cols].std()
+
+    X_train = ((full_train_df[feature_cols] - mean) / std).to_numpy()
 
     # add a column of 1s for the bias/intercept
     X_train = np.hstack([np.ones((len(X_train), 1)), X_train])
-    X_val = np.hstack([np.ones((len(X_val), 1)), X_val])
 
-    T_train = one_hot(train_df['Label'].tolist(), classes)
-    T_val = one_hot(val_df['Label'].tolist(), classes)
+    T_train = one_hot(full_train_df['Label'].tolist(), classes)
 
-    W = train(X_train, T_train, X_val, T_val, alpha=0.5, n_iters=500)
+    reg_lambda = 0.1
+    W = train(X_train, T_train, alpha=0.5, n_iters=500, reg_lambda=reg_lambda)
 
     # save everything pred.py will need:  weights,  mean/std used
     # for standardizing, and the class order (so argmax index -> city name)
@@ -131,5 +166,6 @@ if __name__ == '__main__':
              mean=mean.to_numpy(),
              std=std.to_numpy(),
              feature_cols=feature_cols,
-             classes=classes)
+             classes=classes,
+             reg_lambda=reg_lambda)
     print('Saved model_params.npz')
