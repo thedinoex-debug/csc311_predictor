@@ -414,5 +414,90 @@ code {
   
 
 </div>
+
+<div class="page">
+
+  <h1>Model</h1>
+  
+  <p class="lede">Every model below is trained and evaluated on the same 22-dimensional feature vector defined 
+    in the Data section, using the same group-based train/validation/test split. 
+    We explored five model families in total.</p>
+
+  <h2><span class="num">01</span> Setup</h2>
+  <p>(1) hyperparameters for every model were selected using 5-fold <code>GroupKFold</code> cross-validation on the training set,
+     grouped by response <code>id</code> &mdash; to address the same leakage concern as the original split, since the model could learn 
+    response patterns instead of the city label patterns if their rows were split randomly; and (2) the validation set is used only once per family
+     (after its hyperparameters are already optimized by cross-validation) to produce the accuracy number for model selection. 
+     <br>
+     <strong>We chose to experiment with the following model families: </strong>
+     </p>
+  <table>
+    <tr><th>Family</th><th>sklearn class</th></tr>
+    <tr><td>Decision Tree</td><td><code>DecisionTreeClassifier</code></td></tr>
+    <tr><td>Random Forest</td><td><code>RandomForestClassifier</code></td>
+    <tr><td>Gradient Boosting</td><td><code>GradientBoostingClassifier</code></td></tr>
+    <tr><td>Neural Network (MLP)</td><td><code>MLPClassifier</code></td></tr>
+    <tr><td>Softmax Regression</td><td><code>LogisticRegression</code></td></tr>
+    <tr><td>k-Nearest Neighbors</td><td><code>KNeighborsClassifier</code></td></tr>
+  </table>
+
+  <h2><span class="num">02</span>Decision Tree</h2>
+
+  <p> The input is the 22-feature vector with no additional preprocessing aside from the transformations mentioned earlier. 
+    This is because a tree model makes no assumption about feature scale or column type since it just splits based on thresholds,
+     regardless of whether a column is numeric, one-hot encoded vector etc. which is good because this dataset has multiple feature types and they are on different scales.</p>
+         <div class="interp">An unrestricted tree fit the training data perfectly
+     (100% train accuracy) but generalized poorly (~80% validation accuracy) indicating overfitting. 
+     We proceeded to address this using regularization methods such as pruning 
+     (<code>max_depth</code>, <code>min_samples_leaf</code>). We also looked to reduce variance using ensembles of trees 
+     instead of a single one.</div>
+     <h2>Random Forest &amp; Gradient Boosting</h2>
+  <p>Again we use the 22-feature representation and need no scaling, for the same reason as the single tree.
+  <div class="interp"><b>Results:</b> 
+    Under the same 5-fold <code>GroupKFold</code> 
+    cross-validation, Random Forest reached <strong>89.1% mean accuracy</strong> 
+    (std 0.022) and Gradient Boosting reached <strong>89.6%</strong> (std 0.021) 
+    &mdash; which is a great improvement from the single tree's 81.8% (std 0.046). The standard deviation was also roughly halved when boosting and using ensembles. After 
+      refitting on the full training set and checked once against validation, it reached <strong>93.1% validation accuracy</strong> (against 100% training accuracy &mdash; it still fits the training set perfectly,
+       but generalizes far better than the unpruned single tree did). It's also worth nothing that feature importances were high for the features:
+        <code>Q7_capped</code> (0.30) and <code>Q6_Skyscrapers</code> (0.14).</div>
+
+
+
+  
+  <h2><span class="num">04</span>Neural Network (softmax output)</h2>
+  <p>Applied using <code>MLPClassifier</code>, which already uses a softmax output layer with cross-entropy loss for a multi-class target.
+    For the preprocessing: unlike the tree family, an MLP's computations are scale-sensitive, so every feature had to be standardized first. To do 
+    this correctly under cross-validation, the <code>StandardScaler</code> is fit inside each CV fold, 
+    using only that fold's training rows, rather than once on the whole training set beforehand which would cause data leakage.</p>
+  <p>We tried an MLP to try nonlinear combinations of features.</p>
+  <div class="interp"><b>Results:</b> under the same 5-fold <code>GroupKFold</code> cross-validation, the best hyperparameters &mdash; <code>hidden_layer_sizes=(64,)</code>, <code>alpha=0.01</code> 
+    &mdash; reached <strong>88.0% mean accuracy</strong> (std 0.027), landing between the single Decision Tree (81.8%) and the two tree ensembles 
+    (89.1&ndash;89.6%). After Refitting on the full training set and checked once against validation, it reached <strong>92.2% validation accuracy
+
+    </strong> against 100% training accuracy &mdash; indicating overfitting the training set. Precision and recall per city ranged 0.84&ndash;0.96, 
+    with Dubai having the lowest recall. </div>
+
+  <h2><span class="num">05</span>Softmax (Multinomial Logistic) Regression</h2>
+  <p>Applied using <code>LogisticRegression</code>. It needs the same per-fold standardization as the MLP, for the same reason.</p>
+  <p>This was the last family we tried, as a linear baseline: if a linear decision boundary could match the trees and the MLP, that would be strong evidence that most of the city 
+    signal in this data is mostly linearly separable and complexity of the other families isn't necessary/overfits. It is also the cheapest model to implement.</p>
+  <div class="interp"><b>Results:</b> under the same 5-fold <code>GroupKFold</code> cross-validation, the best regularization strength (<code>C=0.01</code>) reached <strong>88.2% mean
+     accuracy</strong> (std 0.020) and is ~tied with the MLP (88.0%) and bit below the tree ensembles (89.1&ndash;89.6%). After refitting
+     on the full training set and checked once against validation, it reached <strong>95.0% validation accuracy</strong> 
+     against only 89.6% training accuracy which is the highest validation accuracy of any family tried, and the only one where val accuracy <em>exceeded</em> 
+     train accuracy, meaning there's no overfitting. Precision and recall were 0.93&ndash;1.00 for  all four cities, with Rio de Janeiro predicted almost perfectly. 
+    </div>
+
+  <h2><span class="num">06</span>k-Nearest Neighbors</h2>
+  <p><A></A>Applied using <code>KNeighborsClassifier</code> on the same 22-feature vector, standardized the same way as the MLP and softmax regression.</p>
+  
+  <div class="interp"><b>Results:</b> Redone with the same 5-fold <code>GroupKFold</code> cross-validation, the best k value is <strong>k=11 at 87.5% mean accuracy</strong> (std 0.016) 
+    &mdash; worse than every other family we tried (Gradient Boosting 89.6%, Random Forest 89.1%, Softmax Regression 88.2%, MLP 88.0%, single Decision Tree 81.8%). 
+    This is likely due to the curse of dimensionality.</div>
+
+
+</div>
+
 </body>
 </html>
