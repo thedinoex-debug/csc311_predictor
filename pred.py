@@ -134,14 +134,3 @@ def predict_all(filename):
 
     return predictions
 
-# TODO REMOVE THIS TESTING CODE BEFORE SUBMISSION
-if __name__ == '__main__':
-    predictions = predict_all('test_raw.csv')  # 223 rows that were in test_features.csv but in original form in cleaned_dataset.csv
-    print('First 10 predictions:', predictions[:10])
-    print('Total predictions made:', len(predictions))
-
-    # accuracy check, only works if the file has a Label column
-    true_labels = pd.read_csv('test_raw.csv')['Label'].tolist()
-    correct = sum(p == t for p, t in zip(predictions, true_labels))
-    print(f'Accuracy: {correct}/{len(true_labels)} = {correct / len(true_labels):.4f}')
-
