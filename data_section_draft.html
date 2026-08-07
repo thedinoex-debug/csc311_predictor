@@ -495,8 +495,38 @@ code {
   <div class="interp"><b>Results:</b> Redone with the same 5-fold <code>GroupKFold</code> cross-validation, the best k value is <strong>k=11 at 87.5% mean accuracy</strong> (std 0.016) 
     &mdash; worse than every other family we tried (Gradient Boosting 89.6%, Random Forest 89.1%, Softmax Regression 88.2%, MLP 88.0%, single Decision Tree 81.8%). 
     This is likely due to the curse of dimensionality.</div>
+  
+</div>
 
 
+<div class="page">
+  <h1>Model Choice and Hyperparameters</h1>
+  <p class="lede">We used the same train/val/test split for every model we tested, split by respondent ID (<code>GroupShuffleSplit</code>), so no respondent's answers leaked across splits and accuracy numbers are directly comparable across models.</p>
+  <p>Our evaluation metric was accuracy. The four cities are roughly balanced in our data (Figure 3), so accuracy does not overweight any one class the way precision, recall, or F1 might.</p>
+  <p>Hyperparameters for all six models were selected using 5-fold <code>GroupKFold</code> cross-validation on the training set, grouped by respondent <code>id</code>. The validation set was used once per model, after hyperparameters were fixed, to produce a comparable accuracy number. The table below summarizes the grid search results from our modeling notebooks.</p>
+  <table>
+    <tr><th>Model</th><th>Hyperparameters tuned</th><th>Best value</th><th>CV accuracy</th></tr>
+    <tr><td>Decision Tree</td><td><code>max_depth</code>, <code>min_samples_leaf</code></td><td>depth=5, leaf=5</td><td>81.8%</td></tr>
+    <tr><td>Random Forest</td><td><code>n_estimators</code>, <code>max_depth</code>, <code>min_samples_leaf</code></td><td>n=300, depth=10, leaf=1</td><td>89.1%</td></tr>
+    <tr><td>Gradient Boosting</td><td><code>n_estimators</code>, <code>max_depth</code>, <code>learning_rate</code></td><td>n=200, depth=4, lr=0.1</td><td>89.6%</td></tr>
+    <tr><td>MLP</td><td><code>hidden_layer_sizes</code>, <code>alpha</code></td><td>(64,), alpha=0.01</td><td>88.0%</td></tr>
+    <tr><td>Softmax Regression</td><td><code>C</code></td><td>C=0.01</td><td>88.2%</td></tr>
+    <tr><td>kNN</td><td><code>k</code></td><td>k=21</td><td>86.0%</td></tr>
+  </table>
+  <p>Gradient Boosting had the highest cross-validation accuracy, but we chose softmax regression as our final model. When refit on the full training set, softmax reached 95.0% validation accuracy against 89.6% training accuracy, the only model where validation accuracy exceeded training accuracy, indicating no overfitting. Gradient Boosting and Random Forest also required more implementation effort to reproduce from scratch in numpy, since they need an ensemble of trees rather than a single weight matrix. The accuracy gap between softmax and Gradient Boosting was about 1.4 percent, which did not outweigh that added complexity.</p>
+  <p>We implemented softmax regression from scratch, using weights trained with <code>C=0.01</code> on the combined train+validation set (see <code>train.py</code>).</p>
+</div>
+
+<div class="page">
+  <h1>Prediction</h1>
+  <p>Our estimate for performance on the test set is <strong>88.2% accuracy</strong>, based on our 5-fold cross-validation mean for softmax regression at <code>C=0.01</code>.</p>
+  <p>We trust this number over the single validation check (95.0%) because it averages over 5 different splits of the training data, so it is not as sensitive to which respondents ended up in any one split. Since the test set was collected the same way as our training data, we expect similar performance on it.</p>
+</div>
+
+<div class="page">
+  <h1>Workload Distribution</h1>
+  <p><strong>Justin:</strong> Contributed to EDA, modeling (softmax regression, kNN), the Model Choice and Hyperparameters and Prediction report sections, and the pred.py implementation.</p>
+  <p><strong>John:</strong> [fill in]</p>
 </div>
 
 </body>
